@@ -1,15 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { last, map, sum } from "lodash";
+import { map, sum } from "lodash";
 import { arc } from "d3-shape";
 import {
   motion,
-  useAnimate,
   useTransform,
-  useMotionValue,
   useTime,
-  animate,
-  Variant,
+  useMotionValueEvent,
 } from "framer-motion";
 
 const mappings = {
@@ -76,13 +73,54 @@ function parseSequence(str: string): Sequence[] {
   return sequence;
 }
 
-function App() {
-  const [sequence] = useState<Sequence[]>(() => {
-    const url = new URL(window.location.href);
-    const sequence = url.searchParams.get("sequence") ?? "in 4 hold 7 out 8";
-    return parseSequence(sequence);
-  });
+const fourSevenEight = "in 4 hold 7 out 8";
 
+function App() {
+  const [sequence, setSequence] = useState(
+    new URL(window.location.href).searchParams.get("sequence") ??
+      fourSevenEight,
+  );
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  let isValidSequence = true;
+  try {
+    parseSequence(sequence);
+  } catch (e) {
+    isValidSequence = false;
+  }
+
+  // TODO: create an input field, defaulted to the default or the url, and a begin button. On begin generate the sequence and start the animation.
+
+  return (
+    <div className="w-screen h-screen bg-zinc-900">
+      <motion.div
+        className={`fixed top-2 left-1/2 -translate-x-1/2 text-center text-lg`}
+        animate={{ opacity: isPlaying ? 0.1 : 1 }}
+      >
+        <input
+          type="text"
+          value={sequence}
+          disabled={isPlaying}
+          onChange={(e) => setSequence(e.target.value)}
+          className=" text-gray-300 rounded-l bg-zinc-800 px-2 py-1"
+        />
+        <button
+          onClick={() => {
+            console.log("clicked");
+            setIsPlaying((a) => !a);
+          }}
+          disabled={!isValidSequence && !isPlaying}
+          className="text-yellow-200 bg-zinc-800 hover:bg-zinc-700 border-l-2 border-zinc-700 rounded-r px-2 py-1"
+        >
+          {isPlaying ? "Stop" : "Begin"}
+        </button>
+      </motion.div>
+      {isPlaying ? <Animation sequence={parseSequence(sequence)} /> : null}
+    </div>
+  );
+}
+
+const Animation: React.FC<{ sequence: Sequence[] }> = ({ sequence }) => {
   const radius = 50;
   const width = 4;
 
@@ -94,69 +132,51 @@ function App() {
 
   let cumulative = 0;
 
-  const times = sequence.reduce(
-    // @ts-expect-error i know prev is not undefined...
-    (prev, s) => [...prev, (last(prev) ?? 0) + s.duration * 1000],
-    [] as number[],
+  const time = useTime();
+  const sequenceIndexMotionValue = useTransform(time, (t) => {
+    t = t % (totalDuration * 1000);
+
+    for (let i = 0; i < sequence.length; i++) {
+      const s = sequence[i];
+      if (t < s.duration * 1000) {
+        return i;
+      }
+      t -= s.duration * 1000;
+    }
+    throw new Error("Should never reach here");
+  });
+  const [sequenceIndex, setSequenceIndex] = useState(
+    sequenceIndexMotionValue.get(),
   );
 
-  const values = sequence.map((s) => mappings[s.type].displayText);
-  // console.log(times, values);
-  const time = useTime();
-  const text = useTransform(time, times, values);
-  // console.log(time, text);
+  useMotionValueEvent(sequenceIndexMotionValue, "change", setSequenceIndex);
 
-  // useEffect(() => {
-  //   const animation = animate(text, values);
+  const rotate = useTransform(time, [0, totalDuration * 1000], [0, 360], {
+    clamp: false,
+  });
 
-  //   return () => animation.stop();
-  // }, []);
+  const filled = {
+    ...sequence[sequenceIndex],
+    i: sequenceIndex,
+    ...mappings[sequence[sequenceIndex].type],
+  };
 
-  // const count = useMotionValue(0);
-  // const text = useTransform(count, (latest) => Math.round(latest));
-
-  useEffect(() => {
-    const animation = animate(time, 100, { duration: totalDuration });
-
-    return animation.stop;
-  }, []);
+  console.log(
+    Math.floor(time.get()) % (totalDuration * 1000),
+    Math.floor(time.get()),
+    totalDuration * 1000,
+  );
 
   const maxScale = Math.max(...sequence.map((a) => mappings[a.type].scale));
   return (
-    <div className="w-screen h-screen bg-zinc-900">
-      <svg
+    <div className="h-full w-full">
+      <motion.svg
         className="h-full w-full max-w-xl max-h-xl mx-auto"
         viewBox={`-${radius * maxScale} -${radius * maxScale} ${2 * radius * maxScale} ${2 * radius * maxScale}`}
       >
         <motion.g
-          variants={
-            {
-              hold: {
-                scale: mappings.hold.scale,
-              },
-              in: {
-                scale: mappings.in.scale,
-              },
-              out: {
-                scale: mappings.out.scale,
-              },
-            } as Record<keyof typeof mappings, Variant>
-          }
-          transition={{
-            duration: totalDuration,
-            repeat: Infinity,
-            times: [
-              ...sequence.reduce(
-                // @ts-expect-error i know prev is not undefined...
-                (prev, s) => [...prev, last(prev) + s.duration / totalDuration],
-                [0],
-              ),
-            ],
-            // ease: "linear",
-          }}
-          animate={{
-            scale: [1.0, ...sequence.map((a) => mappings[a.type].scale)],
-          }}
+          animate={{ scale: filled.scale }}
+          transition={{ duration: filled.duration }}
         >
           {sequence.map((item, index) => {
             const startAngle = cumulative;
@@ -176,8 +196,17 @@ function App() {
               />
             );
           })}
+          <motion.path
+            key={"current-time"}
+            style={{ rotate, originX: "0px", originY: "0px" }}
+            // animate={{  }}
+            // @ts-expect-error d3 allows optonally setting defaults but typings don't match that.
+            d={a({ startAngle: 0, endAngle: (Math.PI * 2) / 100 })}
+            className={`fill-gray-400 opacity-70`}
+          />
         </motion.g>
-        {/* <motion.text
+
+        <motion.text
           // x="50%"
           // y="50%"
           dominantBaseline="middle"
@@ -185,30 +214,14 @@ function App() {
           alignmentBaseline="middle"
           className={`${mappings[sequence[0].type].colour} stroke-1`}
         >
-         {mappings[sequence[0].type].displayText}
-         {text}
-        </motion.text> */}
-        {/* TODO create another arc that's centered on the current location */}
-      </svg>
-      {/* <C /> */}
-      <motion.div className="text-5xl text-yellow-300 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-        {text}
-      </motion.div>
-      {/* <motion.h1>{text}</motion.h1>; */}
+          {filled.displayText}
+        </motion.text>
+      </motion.svg>
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 text-center text-lg text-gray-300 ">
+        {Math.floor(Math.floor(time.get()) / (totalDuration * 1000))}
+      </div>
     </div>
   );
-}
+};
 
 export default App;
-export function C() {
-  const count = useMotionValue(0);
-  const rounded = useTransform(count, Math.round);
-
-  useEffect(() => {
-    const animation = animate(count, 100, { duration: 10 });
-
-    return animation.stop;
-  }, []);
-
-  return <motion.h1>{rounded}</motion.h1>;
-}
