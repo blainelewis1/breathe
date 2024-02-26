@@ -101,13 +101,17 @@ function App() {
           type="text"
           value={sequence}
           disabled={isPlaying}
-          onChange={(e) => setSequence(e.target.value)}
+          onChange={(e) => {
+            setSequence(e.target.value);
+          }}
           className=" text-gray-300 rounded-l bg-zinc-800 px-2 py-1"
         />
         <button
           onClick={() => {
-            console.log("clicked");
             setIsPlaying((a) => !a);
+            const url = new URL(window.location.href);
+            url.searchParams.set("sequence", sequence);
+            window.history.pushState({}, "", url.toString());
           }}
           disabled={!isValidSequence && !isPlaying}
           className="text-yellow-200 bg-zinc-800 hover:bg-zinc-700 border-l-2 border-zinc-700 rounded-r px-2 py-1"
@@ -160,12 +164,6 @@ const Animation: React.FC<{ sequence: Sequence[] }> = ({ sequence }) => {
     i: sequenceIndex,
     ...mappings[sequence[sequenceIndex].type],
   };
-
-  console.log(
-    Math.floor(time.get()) % (totalDuration * 1000),
-    Math.floor(time.get()),
-    totalDuration * 1000,
-  );
 
   const maxScale = Math.max(...sequence.map((a) => mappings[a.type].scale));
   return (
