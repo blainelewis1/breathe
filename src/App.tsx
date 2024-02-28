@@ -203,7 +203,6 @@ const Animation: React.FC<{ sequence: Sequence[] }> = ({ sequence }) => {
             const startAngle = cumulative;
             cumulative += (item.duration / totalDuration) * Math.PI * 2;
             const endAngle = cumulative;
-            console.log(startAngle, endAngle);
 
             return (
               <motion.path
